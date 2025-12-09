@@ -67,18 +67,30 @@ async function installCommands() {
 
     console.log('\n📍 설치 위치: ~/.claude/commands/we/');
     console.log('\n🎯 사용 가능한 명령어:');
-    console.log('   /we:analyze   - 프로젝트 분석');
+    console.log('');
+    console.log('   📦 프로젝트 라이프사이클:');
+    console.log('   /we:init      - 신규 프로젝트 초기화 (DB/Redis 생성, .env 설정)');
+    console.log('   /we:workflow  - CI/CD 워크플로우 생성 (Self-hosted Runner)');
     console.log('   /we:deploy    - 프로젝트 배포');
-    console.log('   /we:workflow  - CI/CD 워크플로우 생성 (Self-hosted Runner 지원)');
-    console.log('   /we:registry  - MCP 프로젝트/포트 레지스트리 관리');
-    console.log('   /we:secrets   - GitHub Secrets 설정');
-    console.log('   /we:health    - 시스템 상태 점검');
-    console.log('   /we:domain    - 도메인 관리');
     console.log('   /we:rollback  - 배포 롤백');
-    console.log('   /we:monitor   - 실시간 모니터링');
-    console.log('   /we:ssh       - SSH 키 관리');
-    console.log('   /we:agent     - 7-Agent 직접 호출');
+    console.log('');
+    console.log('   🧪 테스트 & 품질:');
+    console.log('   /we:test      - E2E 테스트 (Playwright 기반)');
+    console.log('   /we:analyze   - 프로젝트 분석');
     console.log('   /we:optimize  - 프로젝트 최적화');
+    console.log('');
+    console.log('   🔧 인프라 관리:');
+    console.log('   /we:registry  - MCP 프로젝트/포트 레지스트리 관리');
+    console.log('   /we:domain    - 도메인 관리');
+    console.log('   /we:secrets   - GitHub Secrets 설정');
+    console.log('   /we:ssh       - SSH 키 관리');
+    console.log('');
+    console.log('   📊 모니터링:');
+    console.log('   /we:health    - 시스템 상태 점검');
+    console.log('   /we:monitor   - 실시간 모니터링');
+    console.log('');
+    console.log('   🤖 에이전트:');
+    console.log('   /we:agent     - 7-Agent 직접 호출');
     console.log('\n');
 
   } catch (err) {
