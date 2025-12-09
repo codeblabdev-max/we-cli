@@ -1,0 +1,32 @@
+# Google OAuth Terraform 변수 설정 예시
+# 이 파일을 terraform.tfvars로 복사하고 실제 값을 입력하세요.
+
+# Google Cloud 프로젝트 정보
+project_id     = "your-project-id"
+project_number = "123456789012"
+brand_id       = "your-brand-id"
+
+# 애플리케이션 정보
+app_name    = "My App"
+base_domain = "codeb.dev"
+
+# 환경별 설정
+environments = {
+  local = {
+    subdomain     = "localhost:3000"
+    callback_path = "/api/auth/callback/google"
+  }
+  staging = {
+    subdomain     = "staging"
+    callback_path = "/api/auth/callback/google"
+  }
+  production = {
+    subdomain     = "app"
+    callback_path = "/api/auth/callback/google"
+  }
+  # Preview 환경 추가 예시
+  preview = {
+    subdomain     = "*.preview"
+    callback_path = "/api/auth/callback/google"
+  }
+}

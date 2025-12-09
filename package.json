@@ -1,6 +1,6 @@
 {
   "name": "@codeb/we-cli",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "/we: Web Deploy CLI - Deploy, Analyze, Workflow, Optimize with 7-Agent System",
   "type": "module",
   "bin": {
@@ -10,7 +10,9 @@
   "files": [
     "bin",
     "src",
-    "commands"
+    "commands",
+    "templates",
+    "scripts"
   ],
   "scripts": {
     "test": "echo \"Tests coming soon\" && exit 0",

@@ -27,20 +27,21 @@ import { monitor } from '../src/commands/monitor.js';
 import { rollback } from '../src/commands/rollback.js';
 import { workflow } from '../src/commands/workflow.js';
 import { ssh } from '../src/commands/ssh.js';
+import { registry } from '../src/commands/registry.js';
 import { help } from '../src/commands/help.js';
 
 const program = new Command();
 
 // CLI Header
 console.log(chalk.cyan.bold('\n╔═══════════════════════════════════════════════╗'));
-console.log(chalk.cyan.bold('║   /we: Web Deploy CLI v2.2.0                  ║'));
+console.log(chalk.cyan.bold('║   /we: Web Deploy CLI v2.3.0                  ║'));
 console.log(chalk.cyan.bold('║   배포 • 분석 • 워크플로우 • 최적화           ║'));
 console.log(chalk.cyan.bold('╚═══════════════════════════════════════════════╝\n'));
 
 program
   .name('/we:')
   .description('/we: Web Deploy CLI - 7-Agent 시스템으로 배포, 분석, 워크플로우, 최적화')
-  .version('2.2.0');
+  .version('2.3.0');
 
 // Deploy Command
 program
@@ -176,6 +177,23 @@ program
   .option('--no-interactive', 'Non-interactive mode')
   .action(ssh);
 
+// Registry Command - 프로젝트/포트/도메인 레지스트리 관리
+program
+  .command('registry')
+  .description('서버 레지스트리 관리 (list|show|add|update|remove|ports|sync|preview|promote)')
+  .argument('<action>', '작업 (list|show|add|update|remove|ports|sync|preview|promote)')
+  .argument('[target]', '프로젝트 이름 또는 대상')
+  .option('-e, --environment <env>', '환경 (production|staging|preview)', 'staging')
+  .option('-p, --port <port>', '포트 번호')
+  .option('-d, --domain <domain>', '도메인')
+  .option('--pr <number>', 'PR 번호 (preview 환경용)')
+  .option('--branch <branch>', '브랜치 이름')
+  .option('--build <number>', '빌드 번호')
+  .option('--ttl <hours>', 'Preview 환경 TTL (시간)', '72')
+  .option('--json', 'JSON 형식으로 출력')
+  .option('--force', '확인 없이 강제 실행')
+  .action(registry);
+
 // Help/Doc Command
 program
   .command('help')
@@ -233,6 +251,13 @@ program.on('--help', () => {
   console.log('  $ we ssh register --name "홍길동"');
   console.log('  $ we ssh list');
   console.log('  $ we ssh sync');
+  console.log('');
+  console.log(chalk.gray('  # 서버 레지스트리 관리'));
+  console.log('  $ we registry list                              # 프로젝트 목록');
+  console.log('  $ we registry add myapp --port 3000 --domain myapp.codeb.dev');
+  console.log('  $ we registry preview myapp --pr 123 --build 456');
+  console.log('  $ we registry promote myapp --pr 123 --environment production');
+  console.log('  $ we registry ports                             # 포트 현황');
   console.log('');
   console.log(chalk.cyan('Documentation: https://codeb.io/docs/cli'));
   console.log('');

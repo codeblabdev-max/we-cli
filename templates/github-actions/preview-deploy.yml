@@ -1,0 +1,327 @@
+# Preview Environment Deployment Workflow
+# PR 기반 Preview 환경 자동 배포 및 정리
+#
+# 이 워크플로우는 다음을 수행합니다:
+# 1. PR 생성/업데이트 시 Preview 환경 자동 생성
+# 2. 고유한 도메인 할당 (pr-{number}.{project}.codeb.dev)
+# 3. PR 머지 시 production 승격 옵션
+# 4. PR 닫힘 시 Preview 환경 자동 정리
+
+name: Preview Deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main, master, develop]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  SERVER_HOST: 141.164.60.51
+  SERVER_USER: root
+  BASE_DOMAIN: codeb.dev
+
+jobs:
+  # Preview 환경 생성/업데이트
+  preview-deploy:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+
+    outputs:
+      preview_url: ${{ steps.deploy.outputs.preview_url }}
+      preview_port: ${{ steps.deploy.outputs.preview_port }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=pr-${{ github.event.pull_request.number }}
+            type=raw,value=pr-${{ github.event.pull_request.number }}-${{ github.run_number }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Deploy Preview Environment
+        id: deploy
+        run: |
+          # 프로젝트 이름 추출
+          PROJECT_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          BUILD_NUMBER=${{ github.run_number }}
+
+          # Preview 포트 계산 (3200 + PR 번호의 해시)
+          PREVIEW_PORT=$((3200 + (PR_NUMBER % 100)))
+
+          # Preview 도메인
+          PREVIEW_DOMAIN="pr-${PR_NUMBER}.${PROJECT_NAME}.${{ env.BASE_DOMAIN }}"
+
+          # 서버에 배포
+          ssh -o StrictHostKeyChecking=no ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << EOF
+            # Registry 업데이트
+            REGISTRY_FILE="/opt/codeb/registry.json"
+
+            # 기존 컨테이너 정리
+            podman stop ${PROJECT_NAME}-pr-${PR_NUMBER} 2>/dev/null || true
+            podman rm ${PROJECT_NAME}-pr-${PR_NUMBER} 2>/dev/null || true
+
+            # 이미지 풀
+            podman pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUMBER}
+
+            # 컨테이너 실행
+            podman run -d \
+              --name ${PROJECT_NAME}-pr-${PR_NUMBER} \
+              -p ${PREVIEW_PORT}:3000 \
+              -e NODE_ENV=preview \
+              -e PR_NUMBER=${PR_NUMBER} \
+              -e BUILD_NUMBER=${BUILD_NUMBER} \
+              --restart unless-stopped \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUMBER}
+
+            # Caddy 설정 업데이트
+            cat >> /etc/caddy/sites/previews.caddy << CADDY
+          ${PREVIEW_DOMAIN} {
+              reverse_proxy localhost:${PREVIEW_PORT}
+              encode gzip
+              header {
+                  X-Preview-PR "${PR_NUMBER}"
+                  X-Preview-Build "${BUILD_NUMBER}"
+              }
+          }
+          CADDY
+
+            # Caddy 재시작
+            systemctl reload caddy
+
+            # PowerDNS A 레코드 추가
+            pdnsutil add-record ${{ env.BASE_DOMAIN }} pr-${PR_NUMBER}.${PROJECT_NAME} A 300 141.164.60.51 2>/dev/null || true
+          EOF
+
+          echo "preview_url=https://${PREVIEW_DOMAIN}" >> $GITHUB_OUTPUT
+          echo "preview_port=${PREVIEW_PORT}" >> $GITHUB_OUTPUT
+
+      - name: Comment Preview URL on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const previewUrl = '${{ steps.deploy.outputs.preview_url }}';
+            const prNumber = context.payload.pull_request.number;
+            const buildNumber = '${{ github.run_number }}';
+
+            const body = `## Preview 환경 배포 완료
+
+            | 항목 | 값 |
+            |------|-----|
+            | Preview URL | ${previewUrl} |
+            | Build Number | #${buildNumber} |
+            | 포트 | ${{ steps.deploy.outputs.preview_port }} |
+            | 상태 | Active |
+
+            > Preview 환경은 PR이 닫히면 자동으로 정리됩니다.
+            > TTL: 72시간 (마지막 업데이트 기준)`;
+
+            // 기존 코멘트 찾기
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Preview 환경 배포 완료')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: body
+              });
+            }
+
+  # PR 닫힘 시 Preview 환경 정리
+  preview-cleanup:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Cleanup Preview Environment
+        run: |
+          PROJECT_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          PREVIEW_DOMAIN="pr-${PR_NUMBER}.${PROJECT_NAME}.${{ env.BASE_DOMAIN }}"
+
+          ssh -o StrictHostKeyChecking=no ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << EOF
+            # 컨테이너 정지 및 삭제
+            podman stop ${PROJECT_NAME}-pr-${PR_NUMBER} 2>/dev/null || true
+            podman rm ${PROJECT_NAME}-pr-${PR_NUMBER} 2>/dev/null || true
+
+            # 이미지 삭제
+            podman rmi ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUMBER} 2>/dev/null || true
+
+            # Caddy 설정에서 제거
+            sed -i "/${PREVIEW_DOMAIN}/,/^}/d" /etc/caddy/sites/previews.caddy 2>/dev/null || true
+            systemctl reload caddy
+
+            # PowerDNS 레코드 삭제
+            pdnsutil delete-rrset ${{ env.BASE_DOMAIN }} pr-${PR_NUMBER}.${PROJECT_NAME} A 2>/dev/null || true
+          EOF
+
+      - name: Comment Cleanup on PR
+        if: github.event.pull_request.merged != true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## Preview 환경 정리 완료
+
+              PR이 닫혔으므로 Preview 환경이 정리되었습니다.`
+            });
+
+  # PR 머지 시 Production 승격 옵션
+  promote-to-production:
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    needs: preview-cleanup
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and Push Production Image
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+
+          # PR 이미지를 production 태그로 재태깅
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUMBER} || true
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUMBER} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUMBER} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Deploy to Production
+        run: |
+          PROJECT_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+
+          ssh -o StrictHostKeyChecking=no ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << EOF
+            # Production 포트 (registry에서 조회 또는 기본값)
+            PROD_PORT=3000
+
+            # 기존 컨테이너 정지 (롤백을 위해 이름 변경)
+            podman rename ${PROJECT_NAME}-production ${PROJECT_NAME}-production-backup 2>/dev/null || true
+            podman stop ${PROJECT_NAME}-production-backup 2>/dev/null || true
+
+            # 새 이미지 풀
+            podman pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+            # 새 컨테이너 실행
+            podman run -d \
+              --name ${PROJECT_NAME}-production \
+              -p \${PROD_PORT}:3000 \
+              -e NODE_ENV=production \
+              --restart unless-stopped \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+            # 헬스체크
+            sleep 10
+            if curl -sf http://localhost:\${PROD_PORT}/health > /dev/null 2>&1; then
+              echo "Health check passed, removing backup"
+              podman rm ${PROJECT_NAME}-production-backup 2>/dev/null || true
+            else
+              echo "Health check failed, rolling back"
+              podman stop ${PROJECT_NAME}-production 2>/dev/null || true
+              podman rm ${PROJECT_NAME}-production 2>/dev/null || true
+              podman rename ${PROJECT_NAME}-production-backup ${PROJECT_NAME}-production 2>/dev/null || true
+              podman start ${PROJECT_NAME}-production 2>/dev/null || true
+              exit 1
+            fi
+          EOF
+
+      - name: Comment Production Deploy on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## Production 배포 완료
+
+              PR이 머지되어 Production 환경에 배포되었습니다.
+
+              | 항목 | 값 |
+              |------|-----|
+              | Commit | \`${{ github.sha }}\` |
+              | 배포 시간 | ${new Date().toISOString()} |`
+            });
