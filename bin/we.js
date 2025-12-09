@@ -161,6 +161,8 @@ program
   .option('--no-tests', 'Skip tests in CI/CD')
   .option('--no-lint', 'Skip linting in CI/CD')
   .option('--no-quadlet', 'Use direct podman commands instead of Quadlet')
+  .option('--self-hosted', 'Use self-hosted runner (recommended for ARM Mac)')
+  .option('--no-self-hosted', 'Use GitHub-hosted runner with GHCR')
   .option('--no-interactive', 'Non-interactive mode')
   .option('--force', 'Overwrite existing files')
   .action(workflow);
