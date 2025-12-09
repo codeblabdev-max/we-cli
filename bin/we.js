@@ -28,6 +28,7 @@ import { rollback } from '../src/commands/rollback.js';
 import { workflow } from '../src/commands/workflow.js';
 import { ssh } from '../src/commands/ssh.js';
 import { registry } from '../src/commands/registry.js';
+import { secrets } from '../src/commands/secrets.js';
 import { help } from '../src/commands/help.js';
 
 const program = new Command();
@@ -195,6 +196,19 @@ program
   .option('--force', '확인 없이 강제 실행')
   .action(registry);
 
+// Secrets Command - GitHub Secrets 자동 설정
+program
+  .command('secrets')
+  .description('GitHub Secrets 관리 (setup|list|add|remove|check)')
+  .argument('<action>', '작업 (setup|list|add|remove|check)')
+  .argument('[target]', '저장소 (owner/repo) 또는 Secret 이름')
+  .option('--host <host>', '서버 호스트', '141.164.60.51')
+  .option('--user <user>', '서버 사용자', 'root')
+  .option('--key <path>', 'SSH 키 경로')
+  .option('--value <value>', 'Secret 값 (add 시)')
+  .option('--force', '확인 없이 강제 실행')
+  .action(secrets);
+
 // Help/Doc Command
 program
   .command('help')
@@ -259,6 +273,12 @@ program.on('--help', () => {
   console.log('  $ we registry preview myapp --pr 123 --build 456');
   console.log('  $ we registry promote myapp --pr 123 --environment production');
   console.log('  $ we registry ports                             # 포트 현황');
+  console.log('');
+  console.log(chalk.gray('  # GitHub Secrets 자동 설정'));
+  console.log('  $ we secrets setup                              # 현재 저장소 Secrets 설정');
+  console.log('  $ we secrets setup owner/repo                   # 특정 저장소 설정');
+  console.log('  $ we secrets list                               # Secrets 목록');
+  console.log('  $ we secrets check                              # 필수 Secrets 확인');
   console.log('');
   console.log(chalk.cyan('Documentation: https://codeb.io/docs/cli'));
   console.log('');

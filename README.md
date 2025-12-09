@@ -1,407 +1,448 @@
-# CodeB Unified CLI
+# /we: Web Deploy CLI v2.3.0
 
-> Single entry point for all CodeB operations - Deploy, Analyze, Optimize with 7-Agent System
+> 배포 • 분석 • 워크플로우 • 최적화 - Podman + Quadlet + GitHub Actions 기반 CI/CD 자동화
 
-## Installation
+```
+╔═══════════════════════════════════════════════╗
+║   /we: Web Deploy CLI v2.3.0                  ║
+║   배포 • 분석 • 워크플로우 • 최적화           ║
+╚═══════════════════════════════════════════════╝
+```
+
+## 빠른 시작
 
 ```bash
-# From CLI directory
-cd /Users/admin/new_project/codeb-server/cli
-npm install
-npm link
+# 설치
+cd /Users/admin/new_project/we-cli
+npm install && npm link
 
-# Verify installation
-codeb --version
+# Claude Code 슬래시 명령 설치
+npm run install-commands
+
+# 확인
+we --version
 ```
 
-## Commands
+## 핵심 기능
 
-### 🚀 Deploy
+| 명령 | 설명 |
+|------|------|
+| `we workflow init` | 프로젝트 CI/CD 초기화 (Dockerfile + GitHub Actions + Quadlet) |
+| `we secrets setup` | GitHub Secrets 자동 설정 (HOST, USERNAME, SSH_KEY) |
+| `we registry list` | 서버 레지스트리 프로젝트 목록 |
+| `we deploy` | 프로젝트 배포 |
+| `we health` | 시스템 상태 점검 |
 
-Deploy projects to staging, production, or preview environments with MCP integration.
+## 서비스 플로우
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           /we: 배포 워크플로우                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  1️⃣ 프로젝트 초기화          2️⃣ GitHub Secrets 설정       3️⃣ 코드 푸시
+  ┌──────────────────┐        ┌──────────────────┐        ┌──────────────────┐
+  │ we workflow init │   →    │ we secrets setup │   →    │    git push      │
+  │                  │        │                  │        │                  │
+  │ • Dockerfile     │        │ • HOST           │        │ • main 브랜치    │
+  │ • deploy.yml     │        │ • USERNAME       │        │ • 자동 트리거    │
+  │ • Quadlet        │        │ • SSH_KEY        │        │                  │
+  └──────────────────┘        └──────────────────┘        └──────────────────┘
+           │                           │                           │
+           ▼                           ▼                           ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                         GitHub Actions 자동 실행                         │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │  npm ci → lint → test → Docker Build → ghcr.io Push → SSH Deploy       │
+  └─────────────────────────────────────────────────────────────────────────┘
+           │
+           ▼
+  4️⃣ 서버 자동 배포 (141.164.60.51)
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  podman pull → podman stop → podman rm → podman run (Quadlet/systemd)   │
+  └──────────────────────────────────────────────────────────────────────────┘
+           │
+           ▼
+  5️⃣ 서비스 확인
+  ┌──────────────────┐        ┌──────────────────┐        ┌──────────────────┐
+  │  we health       │        │ we registry list │        │ we domain check  │
+  └──────────────────┘        └──────────────────┘        └──────────────────┘
+```
+
+## 명령어 상세
+
+### 🚀 workflow - CI/CD 워크플로우 생성
+
+프로젝트에 필요한 모든 배포 파일을 한번에 생성합니다.
 
 ```bash
-# Deploy to staging
-codeb deploy myapp --environment staging
+# 전체 초기화 (권장)
+we workflow init myapp --type nextjs --database --redis
 
-# Deploy to production with no cache
-codeb deploy myapp --environment production --no-cache
-
-# Dry run (show plan without executing)
-codeb deploy myapp --dry-run
-
-# Force deployment (skip warnings)
-codeb deploy myapp --force
+# 개별 생성
+we workflow dockerfile myapp              # Dockerfile만
+we workflow github-actions myapp          # GitHub Actions만
+we workflow quadlet myapp --port 3000     # Quadlet만
 ```
 
-**Options:**
-- `-e, --environment <env>` - Target environment (staging|production|preview)
-- `-f, --file <path>` - Docker compose file path (default: docker-compose.yml)
-- `--no-cache` - Build without cache
-- `--force` - Force deployment even with warnings
-- `--dry-run` - Show deployment plan without executing
+**생성되는 파일:**
+- `Dockerfile.production` - 프로덕션 최적화 Docker 이미지
+- `.github/workflows/deploy.yml` - GitHub Actions CI/CD
+- `deploy/myapp.container` - Quadlet systemd 설정
 
-### 🔍 Analyze
+**옵션:**
+| 옵션 | 설명 | 기본값 |
+|------|------|--------|
+| `--type` | 프로젝트 타입 (nextjs/remix/nodejs/static) | nextjs |
+| `--port` | 컨테이너 포트 | 3000 |
+| `--staging-port` | Staging 포트 | 3001 |
+| `--production-port` | Production 포트 | 3000 |
+| `--host` | 배포 서버 | 141.164.60.51 |
+| `--database` | PostgreSQL 포함 | false |
+| `--redis` | Redis 포함 | false |
 
-Comprehensive project analysis using the 7-Agent system.
+---
+
+### 🔐 secrets - GitHub Secrets 자동 설정
+
+gh CLI를 사용하여 배포에 필요한 Secrets를 자동 등록합니다.
 
 ```bash
-# Standard analysis
-codeb analyze
+# 필수 Secrets 확인
+we secrets check
 
-# Deep security analysis
-codeb analyze --depth deep --focus security
+# Secrets 목록 조회
+we secrets list
 
-# Frontend-specific analysis
-codeb analyze --agent frontend --output json
+# 자동 설정 (대화형)
+we secrets setup
 
-# Save analysis report
-codeb analyze --depth normal --save report.md
+# 특정 저장소 설정
+we secrets setup owner/repo
 ```
 
-**Options:**
-- `-d, --depth <level>` - Analysis depth (shallow|normal|deep)
-- `-f, --focus <area>` - Focus area (security|performance|quality|all)
-- `-a, --agent <type>` - Specific agent (master|api|frontend|db|e2e|admin)
-- `-o, --output <format>` - Output format (text|json|markdown)
-- `--save <path>` - Save analysis report to file
+**필수 Secrets:**
+| Secret | 설명 | 워크플로우 사용 |
+|--------|------|-----------------|
+| `HOST` | 배포 서버 IP | SSH 접속 |
+| `USERNAME` | SSH 사용자 | SSH 접속 |
+| `SSH_KEY` | SSH 개인키 | 서버 인증 |
 
-**Agents:**
-- `master` - 👑 Master Orchestrator (project-wide coordination)
-- `api` - 🔖 API Contract Guardian (API design)
-- `frontend` - 🎨 Frontend Specialist (UI/UX development)
-- `db` - 💾 Database Schema Architect (database design)
-- `e2e` - 🧪 E2E Test Strategist (comprehensive testing)
-- `admin` - 🛡️ Admin Panel Builder (admin interfaces)
+**선택 Secrets:**
+| Secret | 설명 |
+|--------|------|
+| `ENV_PRODUCTION` | .env.production 파일 내용 |
+| `GHCR_TOKEN` | GitHub Container Registry 토큰 |
 
-### ⚡ Optimize
+---
 
-Performance and resource optimization.
+### 📦 registry - 서버 레지스트리 관리
+
+서버의 프로젝트, 포트, 도메인 정보를 중앙 관리합니다.
 
 ```bash
-# Optimize everything
-codeb optimize --target all
+# 프로젝트 목록
+we registry list
 
-# Aggressive bundle optimization
-codeb optimize --target bundle --aggressive
+# 프로젝트 상세
+we registry show myapp
 
-# Safe mode optimization
-codeb optimize --safe-mode
+# 프로젝트 추가
+we registry add myapp --port 3000 --domain myapp.one-q.xyz
 
-# Dry run
-codeb optimize --dry-run
+# 포트 현황
+we registry ports
+
+# 서버 동기화
+we registry sync
 ```
 
-**Options:**
-- `-t, --target <type>` - Optimization target (bundle|memory|database|all)
-- `--aggressive` - Use aggressive optimization strategies
-- `--safe-mode` - Conservative optimization with validation
-- `--dry-run` - Show optimization plan without executing
+**포트 할당 규칙:**
+| 환경 | 포트 범위 | 예시 |
+|------|----------|------|
+| Production | 3000-3099 | 3000, 3010, 3020 |
+| Staging | 3100-3199 | 3100, 3110, 3120 |
+| Preview | 3200-3299 | 3200, 3210, 3220 |
 
-### 💚 Health
+**Preview 환경 관리:**
+```bash
+# Preview 생성 (PR 기반)
+we registry preview myapp --pr 123 --build 456
 
-System health checks via MCP full_health_check.
+# Production으로 승격
+we registry promote myapp --pr 123 --environment production
+```
+
+---
+
+### 🚀 deploy - 프로젝트 배포
 
 ```bash
-# Basic health check
-codeb health
+# Staging 배포
+we deploy myapp --environment staging
 
-# Verbose output
-codeb health --verbose
+# Production 배포
+we deploy myapp --environment production
 
-# JSON output
-codeb health --json
+# 캐시 없이 빌드
+we deploy myapp --no-cache
 
-# Continuous monitoring
-codeb health --watch --interval 30
+# 드라이런 (계획만 표시)
+we deploy myapp --dry-run
 ```
 
-**Options:**
-- `-v, --verbose` - Show detailed health information
-- `-j, --json` - Output in JSON format
-- `-w, --watch` - Continuous health monitoring
-- `-i, --interval <seconds>` - Watch interval in seconds (default: 30)
+---
 
-### 🌐 Domain
-
-Domain management with SSL support.
+### 💚 health - 시스템 상태 점검
 
 ```bash
-# Setup domain with SSL
-codeb domain setup example.com --ssl --www
+# 기본 상태 점검
+we health
 
-# Remove domain
-codeb domain remove example.com
+# 상세 정보
+we health --verbose
 
-# Check domain status
-codeb domain check example.com
+# JSON 출력
+we health --json
 
-# List all domains
-codeb domain list
+# 지속 모니터링
+we health --watch --interval 30
 ```
 
-**Actions:**
-- `setup` - Configure new domain
-- `remove` - Remove domain configuration
-- `check` - Check domain status
-- `list` - List all configured domains
+---
 
-**Options:**
-- `-p, --project <name>` - Project name
-- `--ssl` - Enable SSL/TLS
-- `--www` - Include www subdomain
-- `--force` - Force operation without confirmation
+### 🔍 analyze - 프로젝트 분석
 
-### 🤖 Agent
-
-Direct invocation of 7-Agent system.
+7-Agent 시스템을 활용한 코드 분석.
 
 ```bash
-# Invoke frontend agent
-codeb agent frontend "Create responsive navbar component"
+# 기본 분석
+we analyze
 
-# Invoke all agents sequentially
-codeb agent all "Analyze entire application"
+# 보안 집중 분석
+we analyze --depth deep --focus security
 
-# With context
-codeb agent api "Design REST API" --context '{"framework":"express"}'
-
-# Async execution
-codeb agent e2e "Create test suite" --async
-
-# Save output
-codeb agent db "Optimize schema" --save schema-report.json
+# 특정 에이전트 사용
+we analyze --agent frontend
 ```
 
-**Options:**
-- `-c, --context <json>` - Additional context as JSON
-- `-o, --output <format>` - Output format (text|json)
-- `--save <path>` - Save agent output to file
-- `--async` - Run agent asynchronously
+**Agent 종류:**
+| Agent | 역할 |
+|-------|------|
+| `master` | 👑 프로젝트 전체 조율 |
+| `api` | 🔖 API 설계 및 계약 |
+| `frontend` | 🎨 UI/UX 개발 |
+| `db` | 💾 데이터베이스 설계 |
+| `e2e` | 🧪 E2E 테스트 전략 |
+| `admin` | 🛡️ 관리자 패널 |
 
-### 📊 Monitor
+---
 
-Real-time system monitoring with metrics.
+### 🌐 domain - 도메인 관리
 
 ```bash
-# Monitor CPU and memory
-codeb monitor --metrics cpu,memory
+# 도메인 설정
+we domain setup myapp.one-q.xyz --ssl --www
 
-# Monitor with custom threshold
-codeb monitor --metrics cpu,memory,disk --threshold 90
+# 도메인 상태 확인
+we domain check myapp.one-q.xyz
 
-# Monitor for 30 minutes
-codeb monitor --interval 5 --duration 30
+# 도메인 목록
+we domain list
 
-# Continuous monitoring
-codeb monitor --duration 0
+# 도메인 삭제
+we domain remove myapp.one-q.xyz
 ```
 
-**Options:**
-- `-m, --metrics <types>` - Metrics to monitor (cpu,memory,network,disk)
-- `-i, --interval <seconds>` - Update interval (default: 5)
-- `-d, --duration <minutes>` - Duration in minutes (0 = infinite)
-- `-t, --threshold <value>` - Alert threshold percentage (default: 80)
+---
 
-### ⏪ Rollback
-
-Safe deployment rollback.
+### ⏪ rollback - 배포 롤백
 
 ```bash
-# List available versions
-codeb rollback myapp --list
+# 버전 목록
+we rollback myapp --list
 
-# Rollback to previous version
-codeb rollback myapp --environment production
+# 이전 버전으로 롤백
+we rollback myapp --environment production
 
-# Rollback to specific version
-codeb rollback myapp --version v1.2.3
-
-# Dry run
-codeb rollback myapp --dry-run
+# 특정 버전으로 롤백
+we rollback myapp --version v1.2.3
 ```
 
-**Options:**
-- `-e, --environment <env>` - Target environment
-- `-v, --version <tag>` - Specific version to rollback to
-- `--list` - List available versions
-- `--force` - Force rollback without confirmation
-- `--dry-run` - Show rollback plan without executing
+---
 
-## Architecture
-
-### 7-Agent System
-
-The CLI integrates with CodeB's 7-Agent system for specialized tasks:
-
-1. **Master Orchestrator** (`master-orchestrator`)
-   - Project-wide orchestration
-   - Cross-agent coordination
-   - Quality validation
-
-2. **API Contract Guardian** (`api-contract-guardian`)
-   - API design and contracts
-   - OpenAPI specification
-   - Version management
-
-3. **Frontend Specialist** (`frontend-specialist`)
-   - Desktop and mobile UI
-   - React/Next.js expertise
-   - Responsive design
-
-4. **Database Schema Architect** (`db-schema-architect`)
-   - Schema design
-   - PostgreSQL/MongoDB/Redis
-   - Optimization
-
-5. **E2E Test Strategist** (`e2e-test-strategist`)
-   - Playwright testing
-   - Test automation
-   - Coverage strategies
-
-6. **Admin Panel Builder** (`admin-panel-builder`)
-   - Dashboard development
-   - Role management
-   - Data visualization
-
-### MCP Integration
-
-The CLI communicates with MCP servers:
-
-- **codeb-deploy**: Deployment operations
-- **full_health_check**: System health monitoring
-- Additional MCP tools as needed
-
-### Configuration
-
-CLI reads configuration from `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "codeb-deploy": {
-      "command": "node",
-      "args": ["path/to/mcp-server/index.js"],
-      "env": {
-        "CODEB_SERVER_HOST": "your-server",
-        "CODEB_SERVER_USER": "root",
-        "CODEB_SSH_KEY_PATH": "/path/to/key"
-      }
-    }
-  }
-}
-```
-
-## Examples
-
-### Complete Deployment Workflow
+### 🔑 ssh - SSH 키 관리 (Vultr API)
 
 ```bash
-# 1. Analyze project
-codeb analyze --depth deep --focus all
+# 키 등록
+we ssh register --name "My Key"
 
-# 2. Optimize before deployment
-codeb optimize --target all
+# 키 목록
+we ssh list
 
-# 3. Deploy to staging
-codeb deploy myapp --environment staging
-
-# 4. Check health
-codeb health --verbose
-
-# 5. Setup domain
-codeb domain setup myapp.com --ssl --www
-
-# 6. Monitor performance
-codeb monitor --metrics cpu,memory --duration 30
+# 서버와 동기화
+we ssh sync
 ```
 
-### Development Workflow
+---
+
+### 📊 monitor - 실시간 모니터링
 
 ```bash
-# Frontend development
-codeb agent frontend "Create user dashboard" --save dashboard-spec.json
+# CPU, 메모리 모니터링
+we monitor --metrics cpu,memory
 
-# API design
-codeb agent api "Design REST API for users"
+# 임계값 설정
+we monitor --threshold 90
 
-# Database optimization
-codeb agent db "Optimize user queries"
-
-# E2E testing
-codeb agent e2e "Create test suite for user flows"
-
-# Admin panel
-codeb agent admin "Create user management dashboard"
+# 30분간 모니터링
+we monitor --duration 30
 ```
 
-### Troubleshooting
+---
+
+## Claude Code 슬래시 명령
 
 ```bash
-# Check system health
-codeb health --verbose
-
-# Analyze issues
-codeb analyze --depth deep --focus all
-
-# Check deployment logs
-codeb deploy myapp --dry-run
-
-# Rollback if needed
-codeb rollback myapp --list
-codeb rollback myapp --version v1.0.0
+/we:deploy    # 프로젝트 배포
+/we:analyze   # 프로젝트 분석
+/we:workflow  # CI/CD 워크플로우 생성
+/we:health    # 시스템 상태 점검
+/we:domain    # 도메인 관리
+/we:rollback  # 배포 롤백
+/we:monitor   # 실시간 모니터링
+/we:ssh       # SSH 키 관리
+/we:agent     # 7-Agent 직접 호출
+/we:optimize  # 프로젝트 최적화
+/we:registry  # 서버 레지스트리 관리
+/we:secrets   # GitHub Secrets 자동 설정
 ```
 
-## Best Practices
+## 완전한 배포 예시
 
-1. **Always run analysis before deployment**
-   ```bash
-   codeb analyze --depth normal --focus security
-   ```
-
-2. **Use dry-run for validation**
-   ```bash
-   codeb deploy myapp --dry-run
-   codeb optimize --dry-run
-   ```
-
-3. **Monitor after deployment**
-   ```bash
-   codeb health --watch --interval 30
-   codeb monitor --metrics cpu,memory,disk
-   ```
-
-4. **Save analysis reports**
-   ```bash
-   codeb analyze --save analysis-$(date +%Y%m%d).md
-   ```
-
-5. **Use appropriate depth levels**
-   - `shallow`: Quick checks
-   - `normal`: Standard analysis
-   - `deep`: Comprehensive review
-
-## Development
+### 새 프로젝트 배포 (처음부터 끝까지)
 
 ```bash
-# Install dependencies
-npm install
+# 1. 프로젝트 디렉토리로 이동
+cd ~/my-nextjs-app
 
-# Link for development
-npm link
+# 2. CI/CD 워크플로우 생성
+we workflow init myapp --type nextjs --database
 
-# Test commands
-codeb --help
-codeb deploy --help
-codeb analyze --help
+# 3. GitHub Secrets 설정
+we secrets setup
+
+# 4. Git 커밋 & 푸시
+git add .
+git commit -m "Add CI/CD workflow"
+git push origin main
+
+# 5. GitHub Actions 자동 실행 → 배포 완료!
+
+# 6. 상태 확인
+we health --verbose
+we registry list
 ```
 
-## Support
+### 기존 프로젝트에 CI/CD 추가
 
-- Documentation: https://codeb.io/docs/cli
-- Issues: https://github.com/codeb/codeb-server/issues
-- Deployment Rules: See DEPLOYMENT_RULES.md
+```bash
+# 1. Secrets 확인
+we secrets check
 
-## License
+# 2. 부족한 Secrets 설정
+we secrets setup
+
+# 3. 워크플로우 생성
+we workflow github-actions myapp
+
+# 4. 푸시하면 자동 배포
+git push origin main
+```
+
+## 아키텍처
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         /we: CLI Architecture                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   ┌───────────┐    ┌───────────┐    ┌───────────┐    ┌───────────┐ │
+│   │  workflow │    │  secrets  │    │  registry │    │  deploy   │ │
+│   └─────┬─────┘    └─────┬─────┘    └─────┬─────┘    └─────┬─────┘ │
+│         │                │                │                │        │
+│         ▼                ▼                ▼                ▼        │
+│   ┌─────────────────────────────────────────────────────────────┐  │
+│   │                    MCP codeb-deploy Server                   │  │
+│   └─────────────────────────────────────────────────────────────┘  │
+│         │                │                │                │        │
+│         ▼                ▼                ▼                ▼        │
+│   ┌─────────────────────────────────────────────────────────────┐  │
+│   │              SSH → 141.164.60.51 (Vultr VPS)                │  │
+│   │                                                              │  │
+│   │   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │  │
+│   │   │  Podman  │  │ Quadlet  │  │ systemd  │  │  Caddy   │   │  │
+│   │   └──────────┘  └──────────┘  └──────────┘  └──────────┘   │  │
+│   │                                                              │  │
+│   │   ┌──────────┐  ┌──────────┐  ┌──────────┐                  │  │
+│   │   │PostgreSQL│  │  Redis   │  │ PowerDNS │                  │  │
+│   │   └──────────┘  └──────────┘  └──────────┘                  │  │
+│   └─────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## 환경 설정
+
+### 서버 정보
+- **Host**: 141.164.60.51
+- **User**: root
+- **기본 도메인**: one-q.xyz
+
+### 레지스트리 위치
+- **서버**: `/opt/codeb/registry.json`
+- **로컬 캐시**: `~/.codeb/registry-cache.json`
+
+### 요구사항
+- Node.js 18+
+- gh CLI (GitHub Secrets 관리용)
+- SSH 키 (~/.ssh/id_ed25519 또는 id_rsa)
+
+## 문제 해결
+
+### GitHub Actions 실패 시
+
+```bash
+# 1. Secrets 확인
+we secrets check
+
+# 2. 빌드 에러 확인
+gh run list --repo owner/repo
+gh run view <run-id> --log-failed
+
+# 3. 로컬에서 빌드 테스트
+docker build -f Dockerfile.production -t test .
+```
+
+### 배포 실패 시
+
+```bash
+# 1. 서버 상태 확인
+we health --verbose
+
+# 2. 컨테이너 상태 확인
+ssh root@141.164.60.51 "podman ps -a"
+
+# 3. 롤백
+we rollback myapp --environment production
+```
+
+## 라이선스
 
 MIT © CodeB Team
+
+## 링크
+
+- **문서**: https://codeb.io/docs/cli
+- **이슈**: https://github.com/codeblabdev-max/we-cli/issues
+- **저장소**: https://github.com/codeblabdev-max/we-cli
