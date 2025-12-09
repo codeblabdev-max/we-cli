@@ -208,18 +208,22 @@ async function generateServerEnvFile(projectName, config) {
     `NODE_ENV=production`,
   ];
 
+  // Note: Use SERVER_HOST for external port access (Podman 3.x compatibility)
+  // Container DNS names only work with Podman 4.x pod/network setup
   if (config.postgres) {
-    const pgContainerIP = `${projectName}-postgres`;
-    lines.push(`DATABASE_URL=postgresql://${config.postgres.user}:${config.postgres.password}@${pgContainerIP}:5432/${config.postgres.database}`);
+    lines.push(`DATABASE_URL=postgresql://${config.postgres.user}:${config.postgres.password}@${SERVER_HOST}:${config.postgres.port}/${config.postgres.database}`);
+    lines.push(`POSTGRES_HOST=${SERVER_HOST}`);
+    lines.push(`POSTGRES_PORT=${config.postgres.port}`);
   }
 
   if (config.redis) {
-    const redisContainerIP = `${projectName}-redis`;
     if (config.redis.password) {
-      lines.push(`REDIS_URL=redis://:${config.redis.password}@${redisContainerIP}:6379`);
+      lines.push(`REDIS_URL=redis://:${config.redis.password}@${SERVER_HOST}:${config.redis.port}`);
     } else {
-      lines.push(`REDIS_URL=redis://${redisContainerIP}:6379`);
+      lines.push(`REDIS_URL=redis://${SERVER_HOST}:${config.redis.port}`);
     }
+    lines.push(`REDIS_HOST=${SERVER_HOST}`);
+    lines.push(`REDIS_PORT=${config.redis.port}`);
   }
 
   return lines.join('\n');
