@@ -69,7 +69,9 @@ async function installCommands() {
     console.log('\n🎯 사용 가능한 명령어:');
     console.log('   /we:analyze   - 프로젝트 분석');
     console.log('   /we:deploy    - 프로젝트 배포');
-    console.log('   /we:workflow  - CI/CD 워크플로우 생성');
+    console.log('   /we:workflow  - CI/CD 워크플로우 생성 (Self-hosted Runner 지원)');
+    console.log('   /we:registry  - MCP 프로젝트/포트 레지스트리 관리');
+    console.log('   /we:secrets   - GitHub Secrets 설정');
     console.log('   /we:health    - 시스템 상태 점검');
     console.log('   /we:domain    - 도메인 관리');
     console.log('   /we:rollback  - 배포 롤백');
