@@ -263,6 +263,112 @@ jobs:
             echo "URL: ${domains.staging || `https://${projectName}-staging.codeb.dev`}"
           fi
 
+      - name: Update MCP Project Registry
+        if: success()
+        run: |
+          CONTAINER_NAME="\${{ steps.vars.outputs.container_name }}"
+          PORT="\${{ steps.vars.outputs.port }}"
+          ENV="\${{ steps.env.outputs.environment }}"
+          PROJECT_REGISTRY="/home/codeb/config/project-registry.json"
+          PORT_REGISTRY="/home/codeb/config/port-registry.json"
+
+          # Ensure config directory exists
+          mkdir -p /home/codeb/config
+
+          # Initialize project registry if not exists
+          if [ ! -f "$PROJECT_REGISTRY" ]; then
+            echo '{"projects":[],"lastUpdated":null}' > "$PROJECT_REGISTRY"
+          fi
+
+          TIMESTAMP=$(date -Iseconds)
+          DOMAIN="${domains.production || `${projectName}.codeb.dev`}"
+          if [ "$ENV" = "staging" ]; then
+            DOMAIN="${domains.staging || `${projectName}-staging.codeb.dev`}"
+          fi
+
+          # Update MCP project registry (Map format: [name, project] pairs)
+          if command -v jq &> /dev/null; then
+            # Check if project exists in registry
+            PROJECT_EXISTS=$(jq --arg name "\${{ env.APP_NAME }}" '.projects | map(select(.[0] == $name)) | length' "$PROJECT_REGISTRY")
+
+            if [ "$PROJECT_EXISTS" -eq "0" ]; then
+              # Add new project entry
+              jq --arg name "\${{ env.APP_NAME }}" \\
+                 --arg env "$ENV" \\
+                 --arg port "$PORT" \\
+                 --arg domain "$DOMAIN" \\
+                 --arg container "$CONTAINER_NAME" \\
+                 --arg image "localhost/\${{ env.APP_NAME }}:\${{ steps.vars.outputs.image_tag }}" \\
+                 --arg timestamp "$TIMESTAMP" \\
+                 '.projects += [[$name, {
+                    name: $name,
+                    template: "${projectType}",
+                    registeredAt: $timestamp,
+                    lastDeployedAt: $timestamp,
+                    status: "active",
+                    source: "workflow",
+                    environments: {
+                      ($env): {
+                        ports: { app: ($port | tonumber) },
+                        domain: $domain,
+                        containerName: $container,
+                        imageTag: $image,
+                        lastDeployedAt: $timestamp,
+                        status: "running"
+                      }
+                    },
+                    containers: [{
+                      name: $container,
+                      type: "app",
+                      environment: $env,
+                      ports: [{ host: ($port | tonumber), container: 3000 }],
+                      status: "running",
+                      image: $image
+                    }]
+                  }]] | .lastUpdated = $timestamp' \\
+                 "$PROJECT_REGISTRY" > "$PROJECT_REGISTRY.tmp" && mv "$PROJECT_REGISTRY.tmp" "$PROJECT_REGISTRY"
+              echo "New project registered: \${{ env.APP_NAME }}"
+            else
+              # Update existing project entry
+              jq --arg name "\${{ env.APP_NAME }}" \\
+                 --arg env "$ENV" \\
+                 --arg port "$PORT" \\
+                 --arg domain "$DOMAIN" \\
+                 --arg container "$CONTAINER_NAME" \\
+                 --arg image "localhost/\${{ env.APP_NAME }}:\${{ steps.vars.outputs.image_tag }}" \\
+                 --arg timestamp "$TIMESTAMP" \\
+                 '(.projects | map(select(.[0] == $name)) | .[0][1]) |= (
+                    .lastDeployedAt = $timestamp |
+                    .status = "active" |
+                    .environments[$env] = {
+                      ports: { app: ($port | tonumber) },
+                      domain: $domain,
+                      containerName: $container,
+                      imageTag: $image,
+                      lastDeployedAt: $timestamp,
+                      status: "running"
+                    }
+                  ) | .lastUpdated = $timestamp' \\
+                 "$PROJECT_REGISTRY" > "$PROJECT_REGISTRY.tmp" && mv "$PROJECT_REGISTRY.tmp" "$PROJECT_REGISTRY"
+              echo "Project updated: \${{ env.APP_NAME }} ($ENV)"
+            fi
+
+            # Update port registry
+            if [ -f "$PORT_REGISTRY" ]; then
+              jq --arg port "$PORT" \\
+                 --arg name "\${{ env.APP_NAME }}" \\
+                 --arg env "$ENV" \\
+                 --arg timestamp "$TIMESTAMP" \\
+                 'if (.usedPorts | index($port | tonumber)) then . else .usedPorts += [($port | tonumber)] end |
+                  .allocations[$port] = { project: $name, environment: $env, allocatedAt: $timestamp } |
+                  .lastUpdated = $timestamp' \\
+                 "$PORT_REGISTRY" > "$PORT_REGISTRY.tmp" && mv "$PORT_REGISTRY.tmp" "$PORT_REGISTRY"
+              echo "Port $PORT registered for \${{ env.APP_NAME }} ($ENV)"
+            fi
+          else
+            echo "Warning: jq not installed, skipping registry update"
+          fi
+
       - name: Cleanup old images
         if: success()
         run: |
