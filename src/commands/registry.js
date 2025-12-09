@@ -436,18 +436,28 @@ async function syncRegistry(target, options) {
 }
 
 async function managePreview(target, options) {
-  // target: create, list, remove
-  const subAction = target || 'list';
+  // target이 create/list/remove면 서브액션, 아니면 프로젝트 이름
+  const subActions = ['create', 'list', 'remove'];
 
-  if (subAction === 'list') {
+  if (!target || target === 'list') {
+    // we registry preview 또는 we registry preview list
     await listPreviews(options);
-  } else if (subAction === 'create') {
+  } else if (target === 'create') {
+    // we registry preview create --project myapp
     await createPreview(options);
-  } else if (subAction === 'remove') {
+  } else if (target === 'remove') {
+    // we registry preview remove --project myapp
     await removePreview(options);
-  } else {
-    console.log(chalk.red(`\n❌ 알 수 없는 서브 액션: ${subAction}`));
-    console.log(chalk.gray('사용: preview [create|list|remove]\n'));
+  } else if (!subActions.includes(target)) {
+    // target이 프로젝트 이름인 경우
+    // we registry preview myapp --pr 42 --build 100
+    options.project = target;
+    if (options.pr || options.build) {
+      await createPreview(options);
+    } else {
+      // PR이나 빌드 번호 없으면 해당 프로젝트의 preview 목록 표시
+      await listPreviews({ ...options, filterProject: target });
+    }
   }
 }
 
@@ -456,7 +466,12 @@ async function listPreviews(options) {
 
   try {
     const registry = await getRegistry();
-    const previews = Object.entries(registry.previews || {});
+    let previews = Object.entries(registry.previews || {});
+
+    // 프로젝트 필터
+    if (options.filterProject) {
+      previews = previews.filter(([_, p]) => p.project === options.filterProject);
+    }
 
     spinner.succeed('Preview 환경 조회 완료');
 
@@ -514,7 +529,7 @@ async function createPreview(options) {
 
     // 포트 할당
     const port = registry.ports.next_available.preview++;
-    const baseDomain = registry.server.domains[1] || registry.server.domains[0] || 'one-q.xyz';
+    const baseDomain = registry.server.domains[0] || 'one-q.xyz';
     const previewKey = `${project}-${buildId}`;
 
     // TTL 계산 (기본 24시간)
@@ -589,13 +604,23 @@ async function removePreview(options) {
   }
 }
 
-async function promotePreview(previewKey, options) {
+async function promotePreview(target, options) {
+  // target이 프로젝트 이름이고 --pr 또는 --build가 있으면 키 생성
+  let previewKey = target;
+
+  if (target && (options.pr || options.build)) {
+    const buildId = options.build || options.pr;
+    previewKey = `${target}-${buildId}`;
+  }
+
   if (!previewKey) {
-    console.log(chalk.red('\n❌ Preview 키를 입력해주세요.\n'));
+    console.log(chalk.red('\n❌ Preview 키를 입력해주세요.'));
+    console.log(chalk.gray('사용법: we registry promote <project> --pr <number>'));
+    console.log(chalk.gray('        we registry promote <preview-key>\n'));
     return;
   }
 
-  const targetEnv = options.to || 'staging';
+  const targetEnv = options.environment || options.to || 'staging';
   const spinner = ora(`Preview를 ${targetEnv}으로 승격 중: ${previewKey}`).start();
 
   try {
