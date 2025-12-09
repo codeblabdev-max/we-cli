@@ -186,6 +186,7 @@ program
   .option('-e, --environment <env>', '환경 (production|staging|preview)', 'staging')
   .option('-p, --port <port>', '포트 번호')
   .option('-d, --domain <domain>', '도메인')
+  .option('--project <name>', '프로젝트 이름 (preview/promote용)')
   .option('--pr <number>', 'PR 번호 (preview 환경용)')
   .option('--branch <branch>', '브랜치 이름')
   .option('--build <number>', '빌드 번호')

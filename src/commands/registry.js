@@ -68,8 +68,10 @@ async function getRegistry() {
 
 async function saveRegistry(registry) {
   registry.updated_at = new Date().toISOString();
-  const jsonStr = JSON.stringify(registry, null, 2).replace(/"/g, '\\"');
-  await sshExec(`echo "${jsonStr}" > ${SERVER_CONFIG.registryPath}`);
+  const jsonStr = JSON.stringify(registry, null, 2);
+  // base64 인코딩으로 특수문자 이스케이프 문제 해결
+  const base64Data = Buffer.from(jsonStr).toString('base64');
+  await sshExec(`echo '${base64Data}' | base64 -d > ${SERVER_CONFIG.registryPath}`);
 }
 
 async function listProjects(target, options) {
@@ -205,10 +207,11 @@ async function addProject(name, options) {
     }
 
     // 포트 할당
-    const stagingPort = registry.ports.next_available.staging++;
-    const productionPort = registry.ports.next_available.production++;
+    const stagingPort = options.port ? parseInt(options.port) + 100 : registry.ports.next_available.staging++;
+    const productionPort = options.port ? parseInt(options.port) : registry.ports.next_available.production++;
 
-    const baseDomain = options.domain || 'codeb.dev';
+    // 도메인 설정 - 기본값 one-q.xyz
+    const baseDomain = options.domain || 'one-q.xyz';
 
     registry.projects[name] = {
       created_at: new Date().toISOString(),
@@ -511,7 +514,7 @@ async function createPreview(options) {
 
     // 포트 할당
     const port = registry.ports.next_available.preview++;
-    const baseDomain = registry.server.domains[0] || 'codeb.dev';
+    const baseDomain = registry.server.domains[1] || registry.server.domains[0] || 'one-q.xyz';
     const previewKey = `${project}-${buildId}`;
 
     // TTL 계산 (기본 24시간)
